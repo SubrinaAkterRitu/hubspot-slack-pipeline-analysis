@@ -1,0 +1,554 @@
+{
+  "name": "Hubspot Data Analysis",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "hubspot-agent",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        -304,
+        16
+      ],
+      "id": "a3ca4ac5-1907-4139-ab28-19d4524fe0d1",
+      "name": "Webhook",
+      "webhookId": "5cae79c4-f938-4132-bd05-bea481f028f2"
+    },
+    {
+      "parameters": {
+        "modelName": "models/gemini-3.1-flash-lite",
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatGoogleGemini",
+      "typeVersion": 1.1,
+      "position": [
+        1264,
+        176
+      ],
+      "id": "bcae6e99-e8cc-48dd-9514-87bcdcd5f797",
+      "name": "Google Gemini Chat Model",
+      "credentials": {
+        "googlePalmApi": {
+          "id": "fo23ZE92tV6y5naW",
+          "name": "Google Gemini(PaLM) Api account 7"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={\n  \"response_type\": \"ephemeral\",\n  \"text\": \"✅ Request received. I am analyzing HubSpot pipeline now...\"\n}",
+        "options": {
+          "responseCode": 200
+        }
+      },
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        -176,
+        -272
+      ],
+      "id": "43f46be2-d990-4d0b-abcd-c2f1cf9ecd9f",
+      "name": "Respond to Webhook"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $('Webhook').first().json.body.response_url }}",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({\n  response_type: \"in_channel\",\n  replace_original: false,\n  blocks: [\n    {\n      type: \"header\",\n      text: {\n        type: \"plain_text\",\n        text: \"HubSpot Pipeline Analysis\"\n      }\n    },\n    {\n      type: \"section\",\n      text: {\n        type: \"mrkdwn\",\n        text: $('LLM Analyst').item.json.text\n      }\n    },\n    ...($('Chart Builder').item.json.chartUrl ? [\n      {\n        type: \"image\",\n        image_url: $('Chart Builder').item.json.chartUrl,\n        alt_text: \"Pipeline chart\"\n      }\n    ] : []),\n    {\n      type: \"divider\"\n    },\n    {\n      type: \"context\",\n      elements: [\n        {\n          type: \"mrkdwn\",\n          text: \"_Analyzed \" + ($('Chart Builder').item.json.meta.dealsAnalyzed ?? \"?\") + \" deals · \" + ($('Chart Builder').item.json.meta.computedAt ?? \"\") + \"_\"\n        }\n      ]\n    }\n  ]\n}) }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        1632,
+        16
+      ],
+      "id": "022a8b47-7483-4af3-902d-9e219145bc35",
+      "name": "HTTP Request"
+    },
+    {
+      "parameters": {
+        "modelName": "models/gemini-3.1-flash-lite",
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatGoogleGemini",
+      "typeVersion": 1.1,
+      "position": [
+        0,
+        -48
+      ],
+      "id": "d238fed9-8080-4a46-b709-7765304ec6d8",
+      "name": "Google Gemini Chat Model1",
+      "credentials": {
+        "googlePalmApi": {
+          "id": "fo23ZE92tV6y5naW",
+          "name": "Google Gemini(PaLM) Api account 7"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "={{ $('Webhook').first().json.body.text }}",
+        "messages": {
+          "messageValues": [
+            {
+              "message": "You are a CRM query classifier. Extract structured intent from the user question. Return ONLY valid JSON, no explanation, no markdown, no code fences.  JSON schema: {   \"intent\": one of [\"monthly_summary\", \"comparison\", \"win_rate\", \"open_deals\", \"owner_breakdown\", \"stage_funnel\", \"top_deals\", \"lost_analysis\", \"deal_velocity\", \"custom\"],   \"month\": \"YYYY-MM\" format of the TARGET or LATER month if mentioned, else null,   \"compare_current\": true if asking for this month or current period, else false,   \"compare_previous\": true if asking for last month, previous month, or any comparison, else false,   \"owner_name\": string if asking about a specific person by name, else null,   \"raw_question\": the original user question copied verbatim }  MONTH EXTRACTION RULES: - Always extract the full year when mentioned. \"april 2026\" = \"2026-04\", \"may 2026\" = \"2026-05\" - When two months are compared, set month to the LATER month. \"april 2026 vs may 2026\" = month: \"2026-05\" - When two months are compared, set month to the LATER month. \"may 2026 vs april 2026\" = month: \"2026-05\" - \"this month\" = set compare_current: true, month: null - \"last month\" or \"previous month\" = set compare_previous: true, month: null - If only one month is mentioned without comparison = set that as month, compare_previous: false - Never default any month to 2025 if the user explicitly mentions a year  INTENT RULES: - \"compare\" or \"vs\" or \"versus\" or \"against\" = set both compare_current and compare_previous to true, intent = \"comparison\" - \"win rate\" or \"close rate\" or \"lead to close\" or \"conversion rate\" = intent = \"win_rate\" - \"open deals\" or \"pipeline\" or \"active deals\" = intent = \"open_deals\" - \"who\" or \"by owner\" or \"by rep\" or \"by person\" or \"by salesperson\" = intent = \"owner_breakdown\" - \"funnel\" or \"by stage\" or \"stage breakdown\" = intent = \"stage_funnel\" - \"top deals\" or \"biggest deals\" or \"largest deals\" = intent = \"top_deals\" - \"lost\" or \"why lost\" or \"lost deals\" or \"lost reasons\" = intent = \"lost_analysis\" - \"velocity\" or \"how long\" or \"days to close\" or \"time to close\" = intent = \"deal_velocity\" - \"summary\" or \"overview\" or \"report\" or \"how did w"
+            }
+          ]
+        },
+        "batching": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.chainLlm",
+      "typeVersion": 1.9,
+      "position": [
+        0,
+        -272
+      ],
+      "id": "46fc59a8-13e4-4659-9763-338b0f087b54",
+      "name": "Intent Router"
+    },
+    {
+      "parameters": {
+        "jsCode": "const raw = $input.first().json.text || \"\";\n\n// strip markdown fences if Gemini wraps it anyway\nconst clean = raw\n  .replace(/```json/g, \"\")\n  .replace(/```/g, \"\")\n  .trim();\n\nlet intent;\ntry {\n  intent = JSON.parse(clean);\n} catch (e) {\n  // fallback: treat as a general summary if parsing fails\n  intent = {\n    intent: \"monthly_summary\",\n    month: null,\n    compare_current: true,\n    compare_previous: false,\n    owner_name: null,\n    raw_question: $('Webhook').first().json.body.text || \"\"\n  };\n}\n\n// also store the response_url here so every downstream node can access it\nintent.response_url = $('Webhook').first().json.body.response_url;\nintent.user_name = $('Webhook').first().json.body.user_name || \"there\";\n\nreturn [{ json: intent }];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        304,
+        -272
+      ],
+      "id": "6c99a072-8641-47da-873b-b603cc6570bf",
+      "name": "Parse Intent"
+    },
+    {
+      "parameters": {
+        "authentication": "oAuth2",
+        "resource": "deal",
+        "operation": "search",
+        "filterGroupsUi": {
+          "filterGroupsValues": [
+            {
+              "filtersUi": {
+                "filterValues": [
+                  {
+                    "propertyName": "createdate",
+                    "value": "amount"
+                  }
+                ]
+              }
+            }
+          ]
+        },
+        "additionalFields": {}
+      },
+      "type": "n8n-nodes-base.hubspot",
+      "typeVersion": 2.2,
+      "position": [
+        80,
+        1136
+      ],
+      "id": "526d637b-d1a8-489c-9c9b-3b77d8fb65fe",
+      "name": "Search for deals",
+      "credentials": {
+        "hubspotOAuth2Api": {
+          "id": "GdVwZHNnh631YP8m",
+          "name": "HubSpot account 3"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const intent = $('Parse Intent').first().json;\n\n// ── helper functions ──────────────────────────────────────────\nfunction val(deal, field) {\n  return deal?.properties?.[field] ?? deal?.[field] ?? null;\n}\nfunction num(v) {\n  return Number(String(v || 0).replace(/[^0-9.-]/g, \"\")) || 0;\n}\nconst WON  = [\"closedwon\", \"won\", \"dealwon\"];\nconst LOST = [\"closedlost\", \"lost\", \"deallost\", \"disqualified\"];\nfunction isWon(s)  { return WON.some(w  => s?.toLowerCase().includes(w)); }\nfunction isLost(s) { return LOST.some(l => s?.toLowerCase().includes(l)); }\n\nfunction computeMonth(rawList) {\n  const deals = rawList.map(d => ({\n    amount:      num(val(d, \"amount\")),\n    stage:       val(d, \"dealstage\") || \"Unknown\",\n    pipeline:    val(d, \"pipeline\")  || \"Unknown\",\n    name:        val(d, \"dealname\")  || \"Unnamed\",\n    owner:       val(d, \"hubspot_owner_id\") || \"Unassigned\",\n    createdate:  val(d, \"createdate\"),\n    closedate:   val(d, \"closedate\"),\n    lostReason:  val(d, \"closed_lost_reason\") || null,\n    probability: num(val(d, \"hs_deal_stage_probability\"))\n  }));\n\n  const stageSummary    = {};\n  const pipelineSummary = {};\n  const ownerSummary    = {};\n  let wonCount=0, lostCount=0, wonVal=0, lostVal=0, totalVal=0;\n  let velocitySum=0, velocityCount=0;\n  const lostReasons = {};\n\n  deals.forEach(d => {\n    totalVal += d.amount;\n\n    // stage\n    if (!stageSummary[d.stage]) stageSummary[d.stage] = { count:0, value:0 };\n    stageSummary[d.stage].count += 1;\n    stageSummary[d.stage].value += d.amount;\n\n    // pipeline\n    if (!pipelineSummary[d.pipeline]) pipelineSummary[d.pipeline] = { count:0, value:0 };\n    pipelineSummary[d.pipeline].count += 1;\n    pipelineSummary[d.pipeline].value += d.amount;\n\n    // owner\n    if (!ownerSummary[d.owner]) ownerSummary[d.owner] = { count:0, value:0 };\n    ownerSummary[d.owner].count += 1;\n    ownerSummary[d.owner].value += d.amount;\n\n    // won / lost\n    if (isWon(d.stage))  { wonCount++;  wonVal  += d.amount; }\n    if (isLost(d.stage)) {\n      lostCount++;\n      lostVal += d.amount;\n      if (d.lostReason) {\n        lostReasons[d.lostReason] = (lostReasons[d.lostReason] || 0) + 1;\n      }\n    }\n\n    // deal velocity (days from create to close)\n    if (d.createdate && d.closedate) {\n      const days = (new Date(d.closedate) - new Date(d.createdate)) / 86400000;\n      if (days > 0) { velocitySum += days; velocityCount++; }\n    }\n  });\n\n  // top 5 deals by value\n  const topDeals = [...deals]\n    .sort((a, b) => b.amount - a.amount)\n    .slice(0, 5)\n    .map(d => ({ name: d.name, amount: d.amount, stage: d.stage }));\n\n  return {\n    totalDeals: deals.length,\n    totalValue: totalVal,\n    avgDealValue: deals.length > 0 ? Math.round(totalVal / deals.length) : 0,\n    wonCount, lostCount, wonVal, lostVal,\n    winRateCount: (wonCount + lostCount) > 0\n      ? ((wonCount / (wonCount + lostCount)) * 100).toFixed(1) + \"%\"\n      : \"N/A\",\n    avgVelocityDays: velocityCount > 0\n      ? Math.round(velocitySum / velocityCount)\n      : null,\n    stageSummary,\n    pipelineSummary,\n    ownerSummary,\n    topDeals,\n    lostReasons\n  };\n}\n\n// ── figure out which input is which ──────────────────────────\nconst allInputs = $input.all();\nlet currentDeals, previousDeals;\n\nconst isComparison = intent.compare_previous === true;\n\nif (isComparison && allInputs.length >= 2) {\n  // input[0] = previous month (from Fetch Previous Month)\n  // input[1] = current month  (from HTTP Request1)\n  const prevRaw = allInputs[0].json.results || [];\n  const currRaw = allInputs[1].json.results || [];\n  previousDeals = computeMonth(prevRaw);\n  currentDeals  = computeMonth(currRaw);\n} else {\n  const raw = allInputs[0].json.results\n    ? allInputs[0].json.results\n    : allInputs.map(i => i.json);\n  currentDeals  = computeMonth(raw);\n  previousDeals = null;\n}\n\n// ── build comparison delta ────────────────────────────────────\nlet comparison = null;\nif (previousDeals) {\n  const prevWR = parseFloat(previousDeals.winRateCount) || 0;\n  const currWR = parseFloat(currentDeals.winRateCount)  || 0;\n  comparison = {\n    dealCountDelta: currentDeals.totalDeals  - previousDeals.totalDeals,\n    valueDelta:     currentDeals.totalValue  - previousDeals.totalValue,\n    winRateDelta:   (currWR - prevWR).toFixed(1) + \"%\",\n    valueChangePct: previousDeals.totalValue > 0\n      ? (((currentDeals.totalValue - previousDeals.totalValue) / previousDeals.totalValue) * 100).toFixed(1) + \"%\"\n      : \"N/A\",\n    previous: previousDeals,\n    current:  currentDeals\n  };\n}\n\nreturn [{ json: {\n  intent,\n  result: currentDeals,\n  comparison,\n  meta: {\n    dealsAnalyzed: currentDeals.totalDeals,\n    computedAt: new Date().toISOString()\n  }\n}}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1072,
+        -272
+      ],
+      "id": "e7f1be07-613e-4c26-8acd-17932558ad3c",
+      "name": "Smart Compute"
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "=You are a sharp CRM analyst. Answer this question directly for Slack.\n\nUser: {{ $('Parse Intent').first().json.raw_question }}\nIntent: {{ $('Parse Intent').first().json.intent }}\n\nCurrent Month Data:\n{{ JSON.stringify($('Chart Builder').item.json.result, null, 2) }}\n\n{{ $('Chart Builder').item.json.comparison ? \"Comparison Data:\\n\" + JSON.stringify($('Chart Builder').item.json.comparison, null, 2) : \"\" }}\n\nRules:\n- First sentence answers the question directly\n- For comparisons: lead with the delta and % change\n- Use *bold* for all numbers\n- Currency is BDT\n- Bullet points for breakdowns (max 4 bullets)\n- End with one concrete recommendation\n- Max 200 words total",
+        "messages": {
+          "messageValues": [
+            {
+              "message": "You are a concise CRM analyst. You answer questions about HubSpot pipeline data.  You write for Slack — short, structured, actionable. No fluff. Numbers first."
+            }
+          ]
+        },
+        "batching": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.chainLlm",
+      "typeVersion": 1.9,
+      "position": [
+        1264,
+        -16
+      ],
+      "id": "46998f97-367f-44ff-9b5f-25f113da7835",
+      "name": "LLM Analyst"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "6c4d55f0-f260-4d74-9658-e509f124fa22",
+              "leftValue": "={{ $json.compare_previous }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        448,
+        -272
+      ],
+      "id": "35465dea-0b51-446d-9385-1c464a7f6f15",
+      "name": "If"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.hubapi.com/crm/v3/objects/deals/search",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "hubspotOAuth2Api",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{\n  (() => {\n    const intent = $('Parse Intent').first().json;\n\n    let startDate;\n    let endDate;\n\n    if (intent.month) {\n      const [yr, mo] = intent.month.split(\"-\").map(Number);\n      startDate = new Date(yr, mo - 1, 1);\n      endDate = new Date(yr, mo, 0, 23, 59, 59, 999);\n    } else {\n      const now = new Date();\n      startDate = new Date(now.getFullYear(), now.getMonth(), 1);\n      endDate = now;\n    }\n\n    return {\n      filterGroups: [\n        {\n          filters: [\n            {\n              propertyName: \"createdate\",\n              operator: \"GTE\",\n              value: startDate.getTime().toString()\n            },\n            {\n              propertyName: \"createdate\",\n              operator: \"LTE\",\n              value: endDate.getTime().toString()\n            }\n          ]\n        }\n      ],\n      properties: [\n  \"dealname\",\n  \"amount\",\n  \"createdate\",\n  \"closedate\",\n  \"dealstage\",\n  \"pipeline\",\n  \"hubspot_owner_id\",\n  \"hs_closed_amount\",\n  \"hs_deal_stage_probability\",\n  \"closed_lost_reason\"\n      ],\n      limit: 100\n    };\n  })()\n}}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        608,
+        256
+      ],
+      "id": "61f666e9-4920-45cb-a3f0-5d2c6cd133e1",
+      "name": "Single Month",
+      "credentials": {
+        "hubspotOAuth2Api": {
+          "id": "GdVwZHNnh631YP8m",
+          "name": "HubSpot account 3"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.hubapi.com/crm/v3/objects/deals/search",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "hubspotOAuth2Api",
+        "sendBody": true,
+        "contentType": "raw",
+        "rawContentType": "application/json",
+        "body": "={{ JSON.stringify({ filterGroups: [{ filters: [{ propertyName: \"createdate\", operator: \"GTE\", value: (() => { const intent = $('Parse Intent').first().json; let refDate; if (intent.month) { const [yr, mo] = intent.month.split('-').map(Number); refDate = new Date(yr, mo-1, 1); } else { refDate = new Date(); } return new Date(refDate.getFullYear(), refDate.getMonth()-1, 1).getTime().toString(); })() }, { propertyName: \"createdate\", operator: \"LTE\", value: (() => { const intent = $('Parse Intent').first().json; let refDate; if (intent.month) { const [yr, mo] = intent.month.split('-').map(Number); refDate = new Date(yr, mo-1, 1); } else { refDate = new Date(); } return new Date(refDate.getFullYear(), refDate.getMonth(), 0, 23, 59, 59, 999).getTime().toString(); })() }] }], properties: [\"dealname\", \"amount\", \"createdate\", \"closedate\", \"dealstage\", \"pipeline\", \"hubspot_owner_id\", \"hs_closed_amount\", \"hs_deal_stage_probability\", \"closed_lost_reason\"], limit: 100 }) }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        608,
+        -144
+      ],
+      "id": "e9b7f695-c43f-4191-857d-27b9bfe41119",
+      "name": "Month Comparison",
+      "credentials": {
+        "hubspotOAuth2Api": {
+          "id": "GdVwZHNnh631YP8m",
+          "name": "HubSpot account 3"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "mode": "combine",
+        "combineBy": "combineAll",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3.2,
+      "position": [
+        800,
+        -240
+      ],
+      "id": "65d33f2c-9353-4928-b620-e2ed6e2f3cc6",
+      "name": "Merge"
+    },
+    {
+      "parameters": {
+        "amount": 20
+      },
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [
+        1488,
+        -256
+      ],
+      "id": "6712254a-a9ba-487a-8b9d-408e4bf9cb98",
+      "name": "Wait",
+      "webhookId": "963cce94-a802-4b68-99ff-74444c6d2b9d"
+    },
+    {
+      "parameters": {
+        "jsCode": "const data   = $input.first().json;\nconst intent = data.intent?.intent || \"monthly_summary\";\nconst comp   = data.comparison;\n\n// Only build a chart if the user explicitly asked for comparison\nconst askedForChart = intent === \"comparison\";\n\nlet chartUrl = null;\n\nif (askedForChart && comp) {\n  const config = {\n    type: \"bar\",\n    data: {\n      labels: [\"Previous Month\", \"Current Month\"],\n      datasets: [{\n        label: \"Pipeline Value (BDT)\",\n        data: [comp.previous.totalValue, comp.current.totalValue],\n        backgroundColor: [\"#4A90D9\", \"#27AE60\"]\n      }]\n    },\n    options: {\n      plugins: { legend: { display: true } },\n      scales: { y: { beginAtZero: true } }\n    }\n  };\n  chartUrl = \"https://quickchart.io/chart?w=500&h=300&c=\" +\n    encodeURIComponent(JSON.stringify(config));\n}\n\nreturn [{ json: { ...data, chartUrl } }];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1280,
+        -256
+      ],
+      "id": "d8406601-6887-43f8-9d56-72a6abebae39",
+      "name": "Chart Builder"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.hubapi.com/crm/v3/objects/deals/search",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "hubspotOAuth2Api",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ filterGroups: [{ filters: [{ propertyName: \"createdate\", operator: \"GTE\", value: (() => { const intent = $('Parse Intent').first().json; let startDate; if (intent.month) { const [yr, mo] = intent.month.split('-').map(Number); startDate = new Date(yr, mo-1, 1); } else { startDate = new Date(new Date().getFullYear(), new Date().getMonth(), 1); } return startDate.getTime().toString(); })() }, { propertyName: \"createdate\", operator: \"LTE\", value: (() => { const intent = $('Parse Intent').first().json; let endDate; if (intent.month) { const [yr, mo] = intent.month.split('-').map(Number); endDate = new Date(yr, mo, 0, 23, 59, 59, 999); } else { endDate = new Date(); } return endDate.getTime().toString(); })() }] }], properties: [\"dealname\", \"amount\", \"createdate\", \"closedate\", \"dealstage\", \"pipeline\", \"hubspot_owner_id\", \"hs_closed_amount\", \"hs_deal_stage_probability\", \"closed_lost_reason\"], limit: 100 }) }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        608,
+        64
+      ],
+      "id": "92d49c4d-e64b-4e5a-881b-9973206af479",
+      "name": "Current Month",
+      "credentials": {
+        "hubspotOAuth2Api": {
+          "id": "GdVwZHNnh631YP8m",
+          "name": "HubSpot account 3"
+        }
+      }
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "Respond to Webhook",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Google Gemini Chat Model": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "LLM Analyst",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Respond to Webhook": {
+      "main": [
+        [
+          {
+            "node": "Intent Router",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Google Gemini Chat Model1": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "Intent Router",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Intent Router": {
+      "main": [
+        [
+          {
+            "node": "Parse Intent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Intent": {
+      "main": [
+        [
+          {
+            "node": "If",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Search for deals": {
+      "main": [
+        []
+      ]
+    },
+    "Smart Compute": {
+      "main": [
+        [
+          {
+            "node": "Chart Builder",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "LLM Analyst": {
+      "main": [
+        [
+          {
+            "node": "HTTP Request",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "If": {
+      "main": [
+        [
+          {
+            "node": "Month Comparison",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Current Month",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Single Month",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Single Month": {
+      "main": [
+        [
+          {
+            "node": "Smart Compute",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Month Comparison": {
+      "main": [
+        [
+          {
+            "node": "Merge",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Merge": {
+      "main": [
+        [
+          {
+            "node": "Smart Compute",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait": {
+      "main": [
+        [
+          {
+            "node": "LLM Analyst",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Chart Builder": {
+      "main": [
+        [
+          {
+            "node": "Wait",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Current Month": {
+      "main": [
+        [
+          {
+            "node": "Merge",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate"
+  },
+  "versionId": "546be72d-fd9b-4fb7-89ba-04c7ddc0ca89",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "2160a532c8bdbd2551c34365ea9ebd1432c146e49636d170bc95e2bb8f2cec23"
+  },
+  "id": "pveCftL4Y7S5SER4",
+  "tags": []
+}
